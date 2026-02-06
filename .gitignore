@@ -1,2 +1,9 @@
 Prof/
 /A3_issue.ipynb
+*__pycache__/
+*.pdf
+*.pyc
+.DS_Store
+*.ipynb_checkpoints
+model/
+backup/

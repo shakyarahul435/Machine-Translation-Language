@@ -175,8 +175,7 @@ The Django backend provides a REST API endpoint:
 
 ### JavaScript (Frontend)
 - react
-- axios
-- bootstrap (or similar UI library)
+- css
 
 ## License
 
