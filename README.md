@@ -190,3 +190,11 @@ This project is for educational purposes as part of the NLP course assignment.
 - Based on the Transformer architecture from "Attention is All You Need"
 - Dataset: OPUS-100 English-Nepali corpus
 - Tokenizers: spaCy and Hugging Face tokenizers
+
+---
+
+**Author**:
+Rahul Shakya - st125982 <br />
+Student Email: st125982@ait.asia <br/>
+Personal Email: shakyarahul435@gmail.com <br />
+University: Asian Institute of Technology, Thailand
