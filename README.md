@@ -72,6 +72,8 @@ A3/
    - Train models with different attention mechanisms
    - Evaluate and compare performance
 
+- Optional: review the focused training notebook [A3/A3_multiplicative_best.ipynb](A3/A3_multiplicative_best.ipynb) for the extended run that fine-tunes the multiplicative attention variant with 20 epochs, learning rate 1e-4, and batch size 64 on CPU. The resulting checkpoint is saved to `model/multiplicative_seq2seq_lr1e-4_ep20.pt` with the matching vocab at `model/vocab_latest.pt` and is deployed in the translation backend.
+
 ### Running the Web Application
 
 1. **Start the Django backend:**
@@ -110,9 +112,11 @@ The Django backend provides a REST API endpoint:
 
 ### Training Parameters
 
-- Batch size: 128
-- Learning rate: 0.0005
-- Epochs: 5
+| Run | Batch Size | Learning Rate | Epochs | Device | Notes |
+|-----|------------|---------------|--------|--------|-------|
+| Baseline experiments | 128 | 5e-4 | 5 | GPU (if available) | Compares general, multiplicative, additive attention variants |
+| Extended multiplicative run | 64 | 1e-4 | 20 | CPU | Conducted in [A3/A3_multiplicative_best.ipynb](A3/A3_multiplicative_best.ipynb); best validation loss 2.482 at epoch 5, checkpoint consumed by backend |
+
 - Optimizer: Adam
 - Loss: Cross-entropy with label smoothing
 

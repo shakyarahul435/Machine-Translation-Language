@@ -24,8 +24,15 @@ sys.modules['__main__'].AdditiveAttention = AdditiveAttention
 sys.modules['__main__'].Seq2SeqTransformer = Seq2SeqTransformer
 
 # Load vocab
-vocab_path = os.path.join(os.path.dirname(__file__), '../../../model/vocab')
+vocab_path = os.path.join(os.path.dirname(__file__), '../../../model/vocab_latest.pt')
 vocab_transform = torch.load(vocab_path)
+
+src_vocab = vocab_transform["en"]
+trg_vocab = vocab_transform["ne"]
+src_stoi = src_vocab.get_stoi()
+trg_stoi = trg_vocab.get_stoi()
+src_itos = src_vocab.get_itos()
+trg_itos = trg_vocab.get_itos()
 
 # Tokenizers
 token_transform = {}
@@ -33,15 +40,18 @@ token_transform["en"] = get_tokenizer('spacy', language='en_core_web_sm')
 token_transform["ne"] = WordPiece()
 
 # Special tokens
-UNK_IDX, PAD_IDX, SOS_IDX, EOS_IDX = 0, 1, 2, 5  # EOS is [SEP]
-CLS_IDX = 4  # [CLS] for Nepali
+UNK_IDX = src_stoi.get('<unk>', 0)
+SRC_PAD_IDX = src_stoi.get('<pad>', 1)
+TRG_PAD_IDX = trg_stoi.get('<pad>', 1)
+SOS_IDX = trg_stoi.get('<sos>', 2)
+EOS_IDX = trg_stoi.get('<eos>', 3)
 
 # Device
 device = torch.device('cpu')  # Use CPU for inference
 
 # Model parameters (from training)
-input_dim = len(vocab_transform["en"])
-output_dim = len(vocab_transform["ne"])
+input_dim = len(src_vocab)
+output_dim = len(trg_vocab)
 HID_DIM = 256
 ENC_LAYERS = 3
 DEC_LAYERS = 3
@@ -52,20 +62,52 @@ DEC_PF_DIM = 512
 ENC_DROPOUT = 0.1
 DEC_DROPOUT = 0.1
 atten_type = "multiplicative"  # Best model
+MAX_SEQ_LEN = 512
 
 # Load model
-model_path = os.path.join(os.path.dirname(__file__), '../../../model/multiplicative_Seq2SeqTransformer.pt')
-params, state = torch.load(model_path, map_location=device)
+model_path = os.path.join(os.path.dirname(__file__), '../../../model/multiplicative_seq2seq_lr1e-4_ep20.pt')
+checkpoint = torch.load(model_path, map_location=device)
 
-enc = Encoder(input_dim, HID_DIM, ENC_LAYERS, ENC_HEADS, ENC_PF_DIM, ENC_DROPOUT, atten_type, device)
-dec = Decoder(output_dim, HID_DIM, DEC_LAYERS, DEC_HEADS, DEC_PF_DIM, DEC_DROPOUT, atten_type, device)
-model = Seq2SeqTransformer(enc, dec, PAD_IDX, PAD_IDX, device)
+state = None
+if isinstance(checkpoint, dict) and 'state_dict' in checkpoint:
+    state = checkpoint['state_dict']
+    hyperparams = checkpoint.get('hyperparams', {})
+    HID_DIM = hyperparams.get('hid_dim', HID_DIM)
+    ENC_LAYERS = hyperparams.get('enc_layers', ENC_LAYERS)
+    DEC_LAYERS = hyperparams.get('dec_layers', DEC_LAYERS)
+    ENC_HEADS = hyperparams.get('enc_heads', ENC_HEADS)
+    DEC_HEADS = hyperparams.get('dec_heads', DEC_HEADS)
+    ENC_PF_DIM = hyperparams.get('enc_pf_dim', ENC_PF_DIM)
+    DEC_PF_DIM = hyperparams.get('dec_pf_dim', DEC_PF_DIM)
+    ENC_DROPOUT = hyperparams.get('enc_dropout', ENC_DROPOUT)
+    DEC_DROPOUT = hyperparams.get('dec_dropout', DEC_DROPOUT)
+    atten_type = hyperparams.get('atten_type', atten_type)
+    input_dim = hyperparams.get('input_dim', input_dim)
+    output_dim = hyperparams.get('output_dim', output_dim)
+else:
+    params, state = checkpoint
+    HID_DIM = params.get('hid_dim', HID_DIM)
+    ENC_LAYERS = params.get('enc_layers', ENC_LAYERS)
+    DEC_LAYERS = params.get('dec_layers', DEC_LAYERS)
+    ENC_HEADS = params.get('enc_heads', ENC_HEADS)
+    DEC_HEADS = params.get('dec_heads', DEC_HEADS)
+    ENC_PF_DIM = params.get('enc_pf_dim', ENC_PF_DIM)
+    DEC_PF_DIM = params.get('dec_pf_dim', DEC_PF_DIM)
+    ENC_DROPOUT = params.get('enc_dropout', ENC_DROPOUT)
+    DEC_DROPOUT = params.get('dec_dropout', DEC_DROPOUT)
+    atten_type = params.get('atten_type', atten_type)
+    input_dim = params.get('input_dim', input_dim)
+    output_dim = params.get('output_dim', output_dim)
+
+enc = Encoder(input_dim, HID_DIM, ENC_LAYERS, ENC_HEADS, ENC_PF_DIM, ENC_DROPOUT, atten_type, device, max_length=MAX_SEQ_LEN)
+dec = Decoder(output_dim, HID_DIM, DEC_LAYERS, DEC_HEADS, DEC_PF_DIM, DEC_DROPOUT, atten_type, device, max_length=MAX_SEQ_LEN)
+model = Seq2SeqTransformer(enc, dec, SRC_PAD_IDX, TRG_PAD_IDX, device)
 model.load_state_dict(state)
 model.eval()
 model.to(device)
 
 # Shared WordPiece detokenizer (aligned with notebook)
-SPECIAL_TOKENS = {'<sos>', '<eos>', '<pad>', '[CLS]', '[SEP]', '[UNK]', '[MASK]'}
+SPECIAL_TOKENS = {'<sos>', '<eos>', '<pad>', '<unk>', '[CLS]', '[SEP]', '[UNK]', '[MASK]'}
 PUNCT_NO_SPACE_BEFORE = {',', '.', ':', ';', ')', ']', '}', '।', '!', '?'}
 PUNCT_NO_SPACE_AFTER  = {'(', '[', '{'}
 
@@ -100,7 +142,7 @@ def _prepare_src(sentence: str):
     else:
         tokens = token_transform["en"].encode(sentence.lower()).tokens
     tokens = ['<sos>'] + tokens + ['<eos>']
-    src_indexes = [vocab_transform["en"].get_stoi().get(token, UNK_IDX) for token in tokens]
+    src_indexes = [src_stoi.get(token, UNK_IDX) for token in tokens]
     src_tensor = torch.LongTensor(src_indexes).unsqueeze(0).to(device)
     src_mask = model.make_src_mask(src_tensor)
     return tokens, src_tensor, src_mask
@@ -111,8 +153,7 @@ def greedy_decode(sentence: str, max_len: int = 50) -> List[str]:
     with torch.no_grad():
         enc_src = model.encoder(src_tensor, src_mask)
 
-    ne_itos = vocab_transform["ne"].get_itos()
-    trg_indexes: List[int] = [CLS_IDX]
+    trg_indexes: List[int] = [SOS_IDX]
     last_id = None
 
     for step in range(max_len):
@@ -127,8 +168,8 @@ def greedy_decode(sentence: str, max_len: int = 50) -> List[str]:
 
         chosen = None
         for candidate in topk:
-            candidate_tok = ne_itos[candidate]
-            if candidate_tok in {'[CLS]', '<sos>', '<pad>'}:
+            candidate_tok = trg_itos[candidate]
+            if candidate_tok in {'<sos>', '<pad>', '[CLS]'}:
                 continue
             if step < 2 and (candidate_tok in {'[SEP]', '<unk>', '[UNK]', '<eos>'} or candidate == EOS_IDX):
                 continue
@@ -142,13 +183,13 @@ def greedy_decode(sentence: str, max_len: int = 50) -> List[str]:
         trg_indexes.append(chosen)
         last_id = chosen
 
-        if ne_itos[chosen] in {'[SEP]', '<eos>'} and step >= 2:
+        if trg_itos[chosen] in {'[SEP]', '<eos>'} and step >= 2:
             break
         if len(trg_indexes) >= 4 and len(set(trg_indexes[-3:])) == 1:
             trg_indexes.append(EOS_IDX)
             break
 
-    return [ne_itos[i] for i in trg_indexes]
+    return [trg_itos[i] for i in trg_indexes]
 
 
 def translate_sentence(sentence, model, vocab_transform, device, max_len=50):
@@ -161,7 +202,7 @@ def translate_sentence(sentence, model, vocab_transform, device, max_len=50):
 def translate_sentence_debug(sentence, model, vocab_transform, device, max_len=50):
     model.eval()
     tokens = greedy_decode(sentence, max_len)
-    return detokenize_wordpiece([t for t in tokens if t not in SPECIAL_TOKENS])
+    return [t for t in tokens if t not in SPECIAL_TOKENS]
 def api_root(request):
     return Response({
         "message": "Translation API",
